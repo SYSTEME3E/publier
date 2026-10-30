@@ -40,11 +40,51 @@
   .err::before { content:"⚠ "; }
   a { color:var(--blue-deep); }
   @media (prefers-reduced-motion: reduce) { #bar i { transition:none; } }
+
+  header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; padding:10px 16px; background:var(--bg); border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:1.3rem; }
+  #burger { width:44px; height:44px; padding:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:5px; background:var(--bg); border:2px solid var(--blue); }
+  #burger i { display:block; width:22px; height:3px; background:var(--blue-deep); border-radius:2px; }
+  #burger:hover:not(:disabled) { background:var(--yellow); border-color:var(--yellow); }
+  #drawer { position:fixed; inset:0 auto 0 0; width:260px; max-width:80vw; background:var(--bg); border-right:1px solid var(--line); transform:translateX(-100%); transition:transform .2s; z-index:20; padding:16px 0; }
+  #drawer.open { transform:none; }
+  #drawer b { display:block; padding:0 20px 12px; color:var(--blue); font-size:1.3rem; }
+  #drawer a { display:block; padding:14px 20px; color:var(--fg); text-decoration:none; font-weight:600; }
+  #drawer a.on { background:var(--blue-deep); color:#fff; }
+  #veil { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:10; display:none; }
+  #veil.open { display:block; }
+  .kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
+  .kpi { border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .kpi small { color:var(--dim); display:block; } .kpi strong { font-size:1.5rem; color:var(--blue-deep); }
+  .up { color:#1b7f3b; font-weight:700; } .down { color:#c62828; font-weight:700; }
+  h2 { font-size:1.1rem; margin:20px 0 8px; color:var(--blue-deep); }
+  .alert { border-left:5px solid var(--blue); background:#f3f7ff; padding:10px 12px; border-radius:6px; margin-bottom:8px; }
+  .alert.danger { border-color:#c62828; background:#fdeeee; } .alert.warn { border-color:var(--yellow); background:#fff9db; } .alert.ok { border-color:#1b7f3b; background:#eefaf1; }
+  .alert b { display:block; } .alert a { font-weight:700; }
+  .item { border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px; }
+  .item.neg { border-color:#c62828; } .item p { margin:4px 0 8px; white-space:pre-wrap; word-break:break-word; }
+  .meta { color:var(--dim); font-size:.85rem; }
+  .tag { display:inline-block; font-size:.75rem; font-weight:700; padding:1px 8px; border-radius:10px; background:#e3e9f5; margin-right:4px; }
+  .tag.r { background:#fdeeee; color:#c62828; }
+  .acts { display:flex; gap:8px; flex-wrap:wrap; } .acts button, .item input { width:auto; padding:8px 12px; font-size:.9rem; }
+  .item input[type=text] { flex:1 1 100%; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  .sec { background:var(--bg); color:var(--blue-deep); } .dng { background:#c62828; border-color:#c62828; }
+  canvas { width:100%; height:90px; display:block; }
+  .view { display:none; } .view.on { display:block; }
 </style>
 </head>
 <body>
+<header><button id="burger" aria-label="Menu"><i></i><i></i><i></i></button><h1 id="ttl">Accueil</h1></header>
+<div id="veil"></div>
+<nav id="drawer"><b>Publier</b>
+  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#history">🕘 Historique</a>
+</nav>
 <main>
-  <h1>Publier</h1>
+<section class="view" id="v-home"><div class="box"><label class="title" for="pwd2">Mot de passe</label><input id="pwd2" type="password" placeholder="Mot de passe de l’application"></div><div id="home-c">Chargement…</div></section>
+<section class="view" id="v-posts"><div id="posts-c">Chargement…</div></section>
+<section class="view" id="v-comments"><div id="comments-c">Chargement…</div></section>
+<section class="view" id="v-history"><div id="history-c">Chargement…</div></section>
+<section class="view" id="v-publish">
 
   <div class="box drop">
     <label class="title" for="file">Image ou vidéo</label>
@@ -72,6 +112,7 @@
 
   <button id="go">Publier</button>
   <div id="status" role="status"></div>
+</section>
 </main>
 
 <script>
@@ -156,7 +197,7 @@ go.addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.error || 'Échec de la publication.');
     try { localStorage.setItem('pwd', pwd.value); } catch {}
     show('Publié sur ta Page.', 'ok', 'https://www.facebook.com/' + data.id);
-    text.value = ''; file.value = '';
+    statsCache = null; text.value = ''; file.value = '';
     $('preview').style.display = 'none'; $('vpreview').style.display = 'none';
   } catch (e) {
     show(e.message, 'err');
@@ -165,6 +206,110 @@ go.addEventListener('click', async () => {
     go.disabled = false;
   }
 });
+
+// ===== Navigation =====
+const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', history:'Historique' };
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const fmt = (n) => n == null ? '–' : Number(n).toLocaleString('fr-FR');
+const ago = (d) => new Date(d).toLocaleDateString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+const delta = (d) => d == null ? '' : `<span class="${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d)} %</span>`;
+const toggle = (o) => { $('drawer').classList.toggle('open', o); $('veil').classList.toggle('open', o); };
+$('burger').onclick = () => toggle(true); $('veil').onclick = () => toggle(false);
+
+function pw() { return pwd.value || $('pwd2').value || localStorage.getItem('pwd') || ''; }
+async function api(path, body) {
+  const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'x-password': pw(), 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Erreur.');
+  return d;
+}
+const fail = (el, e) => { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; };
+
+const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, history: loadHistory };
+function route() {
+  const r = (location.hash || '#home').slice(1); const name = TITLES[r] ? r : 'home';
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + name));
+  document.querySelectorAll('#drawer a').forEach((a) => a.classList.toggle('on', a.hash === '#' + name));
+  $('ttl').textContent = TITLES[name]; toggle(false);
+  if (name === 'home') $('pwd2').value = pwd.value || localStorage.getItem('pwd') || '';
+  loaders[name]?.();
+}
+window.addEventListener('hashchange', route);
+$('pwd2').addEventListener('change', () => { try { localStorage.setItem('pwd', $('pwd2').value); } catch {} pwd.value = $('pwd2').value; loadHome(); });
+
+// ===== Accueil =====
+let statsCache = null;
+async function getStats() { return statsCache = await api('/api/stats'); }
+async function loadHome() {
+  const el = $('home-c');
+  if (!pw()) { el.innerHTML = '<p>Entre le mot de passe pour voir tes statistiques.</p>'; return; }
+  el.textContent = 'Chargement…';
+  try {
+    const s = await getStats(), k = s.kpis;
+    el.innerHTML = `<h2>${esc(s.page.name)}</h2>
+    <div class="kpis">
+      <div class="kpi"><small>Abonnés</small><strong>${fmt(s.page.followers)}</strong><br><small>${k.follows >= 0 ? '+' : ''}${k.follows} cette semaine</small></div>
+      <div class="kpi"><small>Vues (7 j)</small><strong>${fmt(k.views)}</strong><br>${delta(k.viewsDelta)}</div>
+      <div class="kpi"><small>Interactions (7 j)</small><strong>${fmt(k.engagement)}</strong><br>${delta(k.engagementDelta)}</div>
+      <div class="kpi"><small>Publications suivies</small><strong>${s.posts.length}</strong></div>
+    </div>
+    <h2>Alertes</h2>${s.alerts.map((a) => `<div class="alert ${a.level}"><b>${esc(a.title)}</b>${esc(a.text)}${a.go ? ` <a href="${a.go}">Ouvrir</a>` : ''}</div>`).join('')}
+    <h2>Vues par jour</h2><canvas id="cv"></canvas>`;
+    spark($('cv'), s.daily);
+  } catch (e) { fail(el, e); }
+}
+function spark(c, v) {
+  if (!v.length) { c.replaceWith(Object.assign(document.createElement('p'), { textContent: 'Pas de données.' })); return; }
+  const w = c.width = c.clientWidth * 2, h = c.height = 180, x = c.getContext('2d'), m = Math.max(...v, 1);
+  x.strokeStyle = '#1257e0'; x.lineWidth = 4; x.beginPath();
+  v.forEach((y, i) => { const px = (i / Math.max(v.length - 1, 1)) * (w - 20) + 10, py = h - 10 - (y / m) * (h - 20); i ? x.lineTo(px, py) : x.moveTo(px, py); });
+  x.stroke();
+}
+
+// ===== Publications =====
+async function loadPosts() {
+  const el = $('posts-c'); if (!pw()) { el.textContent = 'Entre le mot de passe dans Accueil.'; return; }
+  try {
+    const s = statsCache || await getStats(), vs = s.posts.map((p) => p.views).filter((v) => v != null).sort((a, b) => a - b), med = vs[Math.floor(vs.length / 2)] || 0;
+    el.innerHTML = s.posts.map((p) => `<div class="item"><span class="meta">${ago(p.created)}</span>${p.views != null && p.views < med * 0.4 ? ' <span class="tag r">Peu de visibilité</span>' : ''}
+      <p>${esc(p.message.slice(0, 160)) || '<i>(sans texte)</i>'}</p>
+      <span class="tag">👁 ${fmt(p.views)}</span><span class="tag">👍 ${p.reactions}</span><span class="tag">💬 ${p.comments}</span><span class="tag">↗ ${p.shares}</span>
+      <a href="${esc(p.url)}" target="_blank" rel="noopener">Voir</a></div>`).join('') || 'Aucune publication.';
+  } catch (e) { fail(el, e); }
+}
+
+// ===== Commentaires =====
+async function loadComments() {
+  const el = $('comments-c'); if (!pw()) { el.textContent = 'Entre le mot de passe dans Accueil.'; return; }
+  try {
+    const { comments } = await api('/api/comments');
+    el.innerHTML = comments.map((c) => `<div class="item ${c.negative ? 'neg' : ''}" data-id="${esc(c.id)}">
+      <b>${esc(c.from)}</b> <span class="meta">${ago(c.created)}</span>
+      ${c.negative ? '<span class="tag r">Négatif</span>' : ''}${c.replied ? '<span class="tag">Répondu</span>' : ''}${c.hidden ? '<span class="tag">Masqué</span>' : ''}
+      <p>${esc(c.message)}</p>
+      <div class="acts"><input type="text" placeholder="Ta réponse…"><button data-a="reply">Répondre</button>
+      <button class="sec" data-a="hide">Masquer</button><button class="dng" data-a="delete">Supprimer</button></div></div>`).join('') || 'Aucun commentaire récent.';
+  } catch (e) { fail(el, e); }
+}
+$('comments-c').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const box = b.closest('.item'), a = b.dataset.a;
+  if (a === 'delete' && !confirm('Supprimer ce commentaire ?')) return;
+  b.disabled = true;
+  try { await api('/api/comments', { action: a, id: box.dataset.id, message: box.querySelector('input').value }); statsCache = null; loadComments(); }
+  catch (er) { alert(er.message); b.disabled = false; }
+});
+
+// ===== Historique =====
+async function loadHistory() {
+  const el = $('history-c'); if (!pw()) { el.textContent = 'Entre le mot de passe dans Accueil.'; return; }
+  try {
+    const { items } = await api('/api/history');
+    el.innerHTML = items.map((i) => `<div class="item"><span class="meta">${ago(i.created_at)}</span> <span class="tag ${i.status === 'ok' ? '' : 'r'}">${i.status === 'ok' ? 'Publié' : 'Échec'}</span><span class="tag">${esc(i.media_type)}</span>
+      <p>${esc((i.message || '').slice(0, 160))}</p>${i.error ? `<span class="err">${esc(i.error)}</span>` : ''}</div>`).join('') || 'Aucune publication enregistrée.';
+  } catch (e) { fail(el, e); }
+}
+route();
 </script>
 </body>
 </html>
