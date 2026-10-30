@@ -60,7 +60,7 @@
   h2 { font-size:1.1rem; margin:20px 0 8px; color:var(--blue-deep); }
   .alert { border-left:5px solid var(--blue); background:#f3f7ff; padding:10px 12px; border-radius:6px; margin-bottom:8px; }
   .alert.danger { border-color:#c62828; background:#fdeeee; } .alert.warn { border-color:var(--yellow); background:#fff9db; } .alert.ok { border-color:#1b7f3b; background:#eefaf1; }
-  .alert b { display:block; } .alert a { font-weight:700; }
+  .alert b { display:block; } .alert.ok, .alert.ok b { color:var(--fg); font-weight:400; } .alert.ok b { font-weight:700; } .alert a { font-weight:700; }
   .item { border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px; }
   .item.neg { border-color:#c62828; } .item p { margin:4px 0 8px; white-space:pre-wrap; word-break:break-word; }
   .meta { color:var(--dim); font-size:.85rem; }
@@ -69,6 +69,7 @@
   .acts { display:flex; gap:8px; flex-wrap:wrap; } .acts button, .item input { width:auto; padding:8px 12px; font-size:.9rem; }
   .item input[type=text] { flex:1 1 100%; border:1px solid var(--line); border-radius:6px; font:inherit; }
   .sec { background:var(--bg); color:var(--blue-deep); } .dng { background:#c62828; border-color:#c62828; }
+  .m { display:block; width:100%; max-height:320px; object-fit:contain; background:#000; border-radius:6px; margin:8px 0; }
   canvas { width:100%; height:90px; display:block; }
   .view { display:none; } .view.on { display:block; }
 </style>
@@ -80,7 +81,7 @@
   <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#history">🕘 Historique</a>
 </nav>
 <main>
-<section class="view" id="v-home"><div class="box"><label class="title" for="pwd2">Mot de passe</label><input id="pwd2" type="password" placeholder="Mot de passe de l’application"></div><div id="home-c">Chargement…</div></section>
+<section class="view" id="v-home"><div id="home-c">Chargement…</div></section>
 <section class="view" id="v-posts"><div id="posts-c">Chargement…</div></section>
 <section class="view" id="v-comments"><div id="comments-c">Chargement…</div></section>
 <section class="view" id="v-history"><div id="history-c">Chargement…</div></section>
@@ -216,7 +217,7 @@ const delta = (d) => d == null ? '' : `<span class="${d >= 0 ? 'up' : 'down'}">$
 const toggle = (o) => { $('drawer').classList.toggle('open', o); $('veil').classList.toggle('open', o); };
 $('burger').onclick = () => toggle(true); $('veil').onclick = () => toggle(false);
 
-function pw() { return pwd.value || $('pwd2').value || localStorage.getItem('pwd') || ''; }
+function pw() { return pwd.value || localStorage.getItem('pwd') || ''; }
 async function api(path, body) {
   const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { 'x-password': pw(), 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
@@ -231,18 +232,17 @@ function route() {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + name));
   document.querySelectorAll('#drawer a').forEach((a) => a.classList.toggle('on', a.hash === '#' + name));
   $('ttl').textContent = TITLES[name]; toggle(false);
-  if (name === 'home') $('pwd2').value = pwd.value || localStorage.getItem('pwd') || '';
   loaders[name]?.();
 }
 window.addEventListener('hashchange', route);
-$('pwd2').addEventListener('change', () => { try { localStorage.setItem('pwd', $('pwd2').value); } catch {} pwd.value = $('pwd2').value; loadHome(); });
+pwd.addEventListener('change', () => { try { localStorage.setItem('pwd', pwd.value); } catch {} });
 
 // ===== Accueil =====
 let statsCache = null;
 async function getStats() { return statsCache = await api('/api/stats'); }
 async function loadHome() {
   const el = $('home-c');
-  if (!pw()) { el.innerHTML = '<p>Entre le mot de passe pour voir tes statistiques.</p>'; return; }
+  if (!pw()) { el.innerHTML = '<p>Entre d’abord le mot de passe dans <a href="#publish">Publier</a>.</p>'; return; }
   el.textContent = 'Chargement…';
   try {
     const s = await getStats(), k = s.kpis;
@@ -253,9 +253,7 @@ async function loadHome() {
       <div class="kpi"><small>Interactions (7 j)</small><strong>${fmt(k.engagement)}</strong><br>${delta(k.engagementDelta)}</div>
       <div class="kpi"><small>Publications suivies</small><strong>${s.posts.length}</strong></div>
     </div>
-    <h2>Alertes</h2>${s.alerts.map((a) => `<div class="alert ${a.level}"><b>${esc(a.title)}</b>${esc(a.text)}${a.go ? ` <a href="${a.go}">Ouvrir</a>` : ''}</div>`).join('')}
-    <h2>Vues par jour</h2><canvas id="cv"></canvas>`;
-    spark($('cv'), s.daily);
+    <h2>Alertes</h2>${s.alerts.map((a) => `<div class="alert ${a.level}"><b>${esc(a.title)}</b>${esc(a.text)}${a.go ? ` <a href="${a.go}">Ouvrir</a>` : ''}</div>`).join('')}`;
   } catch (e) { fail(el, e); }
 }
 function spark(c, v) {
@@ -267,11 +265,17 @@ function spark(c, v) {
 }
 
 // ===== Publications =====
+function media(video, image, link) {
+  if (video) return `<video src="${esc(video)}" ${image ? `poster="${esc(image)}"` : ''} controls preload="none" playsinline class="m"></video>`;
+  if (image) return `<img src="${esc(image)}" alt="" loading="lazy" class="m">`;
+  return '';
+}
 async function loadPosts() {
-  const el = $('posts-c'); if (!pw()) { el.textContent = 'Entre le mot de passe dans Accueil.'; return; }
+  const el = $('posts-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
   try {
     const s = statsCache || await getStats(), vs = s.posts.map((p) => p.views).filter((v) => v != null).sort((a, b) => a - b), med = vs[Math.floor(vs.length / 2)] || 0;
     el.innerHTML = s.posts.map((p) => `<div class="item"><span class="meta">${ago(p.created)}</span>${p.views != null && p.views < med * 0.4 ? ' <span class="tag r">Peu de visibilité</span>' : ''}
+      ${media(p.video, p.image, p.url)}
       <p>${esc(p.message.slice(0, 160)) || '<i>(sans texte)</i>'}</p>
       <span class="tag">👁 ${fmt(p.views)}</span><span class="tag">👍 ${p.reactions}</span><span class="tag">💬 ${p.comments}</span><span class="tag">↗ ${p.shares}</span>
       <a href="${esc(p.url)}" target="_blank" rel="noopener">Voir</a></div>`).join('') || 'Aucune publication.';
@@ -280,7 +284,7 @@ async function loadPosts() {
 
 // ===== Commentaires =====
 async function loadComments() {
-  const el = $('comments-c'); if (!pw()) { el.textContent = 'Entre le mot de passe dans Accueil.'; return; }
+  const el = $('comments-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
   try {
     const { comments } = await api('/api/comments');
     el.innerHTML = comments.map((c) => `<div class="item ${c.negative ? 'neg' : ''}" data-id="${esc(c.id)}">
@@ -302,10 +306,11 @@ $('comments-c').addEventListener('click', async (e) => {
 
 // ===== Historique =====
 async function loadHistory() {
-  const el = $('history-c'); if (!pw()) { el.textContent = 'Entre le mot de passe dans Accueil.'; return; }
+  const el = $('history-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
   try {
     const { items } = await api('/api/history');
     el.innerHTML = items.map((i) => `<div class="item"><span class="meta">${ago(i.created_at)}</span> <span class="tag ${i.status === 'ok' ? '' : 'r'}">${i.status === 'ok' ? 'Publié' : 'Échec'}</span><span class="tag">${esc(i.media_type)}</span>
+      ${i.media_url ? media(i.media_type === 'video' ? i.media_url : null, i.media_type === 'image' ? i.media_url : null) : ''}
       <p>${esc((i.message || '').slice(0, 160))}</p>${i.error ? `<span class="err">${esc(i.error)}</span>` : ''}</div>`).join('') || 'Aucune publication enregistrée.';
   } catch (e) { fail(el, e); }
 }
