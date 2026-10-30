@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
     const [page, posts] = await Promise.all([
       g(PAGE_ID, { fields: 'name,fan_count,followers_count' }),
       g(`${PAGE_ID}/posts`, {
-        fields: 'id,message,created_time,permalink_url,shares,reactions.limit(0).summary(true),comments.limit(25).summary(true){id,message,from,created_time}',
+        fields: 'id,message,created_time,permalink_url,full_picture,attachments{media_type,media{source}},shares,reactions.limit(0).summary(true),comments.limit(25).summary(true){id,message,from,created_time}',
         limit: '15',
       }),
     ]);
@@ -34,6 +34,8 @@ module.exports = async (req, res) => {
     const views = await Promise.allSettled(list.slice(0, 10).map((p) => g(`${p.id}/insights`, { metric: 'post_media_view' })));
     const out = list.map((p, i) => ({
       id: p.id, message: p.message || '', created: p.created_time, url: p.permalink_url,
+      image: p.full_picture || null,
+      video: p.attachments?.data?.[0]?.media?.source || null,
       reactions: p.reactions?.summary?.total_count || 0,
       comments: p.comments?.summary?.total_count || 0,
       shares: p.shares?.count || 0,
