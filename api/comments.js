@@ -10,13 +10,12 @@ module.exports = async (req, res) => {
       });
       const rows = [];
       (d.data || []).forEach((p) => (p.comments?.data || []).forEach((c) => {
-        if (c.from?.id === PAGE_ID) return;
         rows.push({ id: c.id, message: c.message || '', from: c.from?.name || 'Anonyme', created: c.created_time,
-          replied: (c.comment_count || 0) > 0, hidden: !!c.is_hidden, negative: isNeg(c.message),
+          mine: c.from?.id === PAGE_ID, replied: (c.comment_count || 0) > 0, hidden: !!c.is_hidden, negative: isNeg(c.message),
           post: p.permalink_url, postText: (p.message || '').slice(0, 60) });
       }));
       rows.sort((a, b) => new Date(b.created) - new Date(a.created));
-      return res.status(200).json({ comments: rows });
+      return res.status(200).json({ comments: rows, scanned: (d.data || []).length });
     }
     if (req.method === 'POST') {
       const { action, id, message } = req.body || {};
