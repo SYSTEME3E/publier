@@ -78,12 +78,13 @@
 <header><button id="burger" aria-label="Menu"><i></i><i></i><i></i></button><h1 id="ttl">Accueil</h1></header>
 <div id="veil"></div>
 <nav id="drawer"><b>Publier</b>
-  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#history">🕘 Historique</a>
+  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#ads">📣 Publicité</a><a href="#history">🕘 Historique</a>
 </nav>
 <main>
 <section class="view" id="v-home"><div id="home-c">Chargement…</div></section>
 <section class="view" id="v-posts"><div id="posts-c">Chargement…</div></section>
 <section class="view" id="v-comments"><div id="comments-c">Chargement…</div></section>
+<section class="view" id="v-ads"><div id="ads-c">Chargement…</div></section>
 <section class="view" id="v-history"><div id="history-c">Chargement…</div></section>
 <section class="view" id="v-publish">
 
@@ -209,7 +210,7 @@ go.addEventListener('click', async () => {
 });
 
 // ===== Navigation =====
-const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', history:'Historique' };
+const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', ads:'Publicité', history:'Historique' };
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 const fmt = (n) => n == null ? '–' : Number(n).toLocaleString('fr-FR');
 const ago = (d) => new Date(d).toLocaleDateString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -226,7 +227,7 @@ async function api(path, body) {
 }
 const fail = (el, e) => { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; };
 
-const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, history: loadHistory };
+const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, ads: loadAds, history: loadHistory };
 function route() {
   const r = (location.hash || '#home').slice(1); const name = TITLES[r] ? r : 'home';
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + name));
@@ -316,7 +317,42 @@ async function loadHistory() {
       <p>${esc((i.message || '').slice(0, 160))}</p>${i.error ? `<span class="err">${esc(i.error)}</span>` : ''}</div>`).join('') || 'Aucune publication enregistrée.';
   } catch (e) { fail(el, e); }
 }
+// ===== Publicité =====
+const STAT = { ACTIVE:'Active', PAUSED:'En pause', PENDING_REVIEW:'En vérification', DISAPPROVED:'Refusée', WITH_ISSUES:'Problème' };
+async function loadAds() {
+  const el = $('ads-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
+  try {
+    const [a, s] = await Promise.all([api('/api/ads'), statsCache || getStats()]), t = a.total, cur = a.account.currency;
+    el.innerHTML = `<div class="kpis">
+      <div class="kpi"><small>Dépense (7 j)</small><strong>${fmt(t.spend || 0)}</strong><br><small>${esc(cur)}</small></div>
+      <div class="kpi"><small>Portée (7 j)</small><strong>${fmt(t.reach || 0)}</strong></div>
+      <div class="kpi"><small>Impressions</small><strong>${fmt(t.impressions || 0)}</strong></div>
+      <div class="kpi"><small>Clics</small><strong>${fmt(t.clicks || 0)}</strong></div></div>
+    <h2>Booster une publication</h2><div class="item">
+      <select id="b-post" style="width:100%;padding:10px;font:inherit">${s.posts.map((p) => `<option value="${esc(p.id)}">${esc(ago(p.created))} — ${esc((p.message || '(média)').slice(0, 40))}</option>`).join('')}</select>
+      <p class="meta">Budget par jour (${esc(cur)}), maximum ${a.max}</p><input id="b-bud" type="number" min="1" max="${a.max}" value="${Math.min(a.max, 2)}" style="width:100%">
+      <p class="meta">Durée en jours (1 à 30)</p><input id="b-days" type="number" min="1" max="30" value="3" style="width:100%">
+      <p class="meta">Pays (codes séparés par des virgules, ex : FR, CI, SN)</p><input id="b-cty" type="text" value="FR" style="width:100%">
+      <p></p><button id="b-go">🚀 Booster</button><div id="b-st" role="status"></div></div>
+    <h2>Campagnes</h2>${a.campaigns.map((c) => { const i = c.insights?.data?.[0] || {}, on = c.effective_status === 'ACTIVE';
+      return `<div class="item"><b>${esc(c.name)}</b> <span class="tag ${on ? '' : 'r'}">${esc(STAT[c.effective_status] || c.effective_status)}</span>
+      <p class="meta">Dépensé : ${fmt(i.spend || 0)} ${esc(cur)} · Portée : ${fmt(i.reach || 0)} · Clics : ${fmt(i.clicks || 0)}</p>
+      <div class="acts"><button class="${on ? 'sec' : ''}" data-id="${esc(c.id)}" data-s="${on ? 'PAUSED' : 'ACTIVE'}">${on ? 'Mettre en pause' : 'Activer'}</button></div></div>`; }).join('') || '<p>Aucune campagne.</p>'}`;
+    $('b-go').onclick = async () => {
+      const bud = $('b-bud').value, d = $('b-days').value, c = $('b-cty').value, st = $('b-st');
+      if (!confirm(`Dépenser jusqu’à ${bud * d} ${cur} (${bud} ${cur}/jour pendant ${d} jour(s)) pour booster cette publication ?`)) return;
+      $('b-go').disabled = true; st.textContent = 'Création de la campagne…';
+      try { await api('/api/ads', { action: 'boost', postId: $('b-post').value, dailyBudget: bud, days: d, countries: c }); loadAds(); }
+      catch (e) { st.className = 'err'; st.textContent = e.message; $('b-go').disabled = false; }
+    };
+  } catch (e) { fail(el, e); }
+}
+$('ads-c').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-id]'); if (!b) return; b.disabled = true;
+  try { await api('/api/ads', { action: 'status', id: b.dataset.id, status: b.dataset.s }); loadAds(); } catch (er) { alert(er.message); b.disabled = false; }
+});
 route();
+
 </script>
 </body>
 </html>
