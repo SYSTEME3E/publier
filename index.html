@@ -288,10 +288,10 @@ async function loadPosts() {
 async function loadComments() {
   const el = $('comments-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
   try {
-    const { comments } = await api('/api/comments');
+    const { comments, scanned } = await api('/api/comments');
     el.innerHTML = comments.map((c) => `<div class="item ${c.negative ? 'neg' : ''}" data-id="${esc(c.id)}">
       <b>${esc(c.from)}</b> <span class="meta">${ago(c.created)}</span>
-      ${c.negative ? '<span class="tag r">Négatif</span>' : ''}${c.replied ? '<span class="tag">Répondu</span>' : ''}${c.hidden ? '<span class="tag">Masqué</span>' : ''}
+      ${c.mine ? '<span class="tag">Ta Page</span>' : ''}${c.negative ? '<span class="tag r">Négatif</span>' : ''}${c.replied ? '<span class="tag">Répondu</span>' : ''}${c.hidden ? '<span class="tag">Masqué</span>' : ''}
       <p>${esc(c.message)}</p>
       <div class="acts"><input type="text" placeholder="Ta réponse…"><button data-a="reply">Répondre</button>
       <button class="sec" data-a="hide">Masquer</button><button class="dng" data-a="delete">Supprimer</button></div></div>`).join('') || 'Aucun commentaire récent.';
