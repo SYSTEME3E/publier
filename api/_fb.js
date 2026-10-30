@@ -11,7 +11,9 @@ async function g(path, params = {}) {
 }
 async function send(path, params = {}, method = 'POST') {
   const q = new URLSearchParams({ access_token: PAGE_TOKEN, ...params });
-  const r = await fetch(`https://graph.facebook.com/${V}/${path}`, { method, body: method === 'DELETE' ? undefined : q, ...(method === 'DELETE' ? {} : {}) });
+  const base = `https://graph.facebook.com/${V}/${path}`;
+  // DELETE : tout passe dans l'URL (un corps n'est pas lu par Facebook)
+  const r = method === 'DELETE' ? await fetch(`${base}?${q}`, { method }) : await fetch(base, { method, body: q });
   const d = await r.json();
   if (!r.ok || d.error) throw new Error(d.error?.message || 'Erreur Facebook.');
   return d;
