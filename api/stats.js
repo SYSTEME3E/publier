@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
     // --- Alertes ---
     const negatives = [];
     list.forEach((p) => (p.comments?.data || []).forEach((c) => {
-      if (c.from?.id !== PAGE_ID && isNeg(c.message)) negatives.push({ id: c.id, message: c.message, from: c.from?.name || 'Anonyme', post: p.permalink_url });
+      if (isNeg(c.message)) negatives.push({ id: c.id, message: c.message, from: c.from?.name || 'Anonyme', post: p.permalink_url });
     }));
     if (negatives.length) alerts.push({ level: 'danger', title: `${negatives.length} commentaire(s) négatif(s)`, text: 'Réponds ou masque-les depuis la page Commentaires.', go: '#comments' });
 
