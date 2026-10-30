@@ -58,8 +58,8 @@
   .kpi small { color:var(--dim); display:block; } .kpi strong { font-size:1.5rem; color:var(--blue-deep); }
   .up { color:#1b7f3b; font-weight:700; } .down { color:#c62828; font-weight:700; }
   h2 { font-size:1.1rem; margin:20px 0 8px; color:var(--blue-deep); }
-  .alert { border-left:5px solid var(--blue); background:#f3f7ff; padding:10px 12px; border-radius:6px; margin-bottom:8px; }
-  .alert.danger { border-color:#c62828; background:#fdeeee; } .alert.warn { border-color:var(--yellow); background:#fff9db; } .alert.ok { border-color:#1b7f3b; background:#eefaf1; }
+  .alert { background:#f3f7ff; padding:10px 12px; border-radius:6px; margin-bottom:8px; }
+  .alert.danger { background:#fdeeee; } .alert.warn { background:#fff9db; } .alert.ok { background:#eefaf1; }
   .alert b { display:block; } .alert.ok, .alert.ok b { color:var(--fg); font-weight:400; } .alert.ok b { font-weight:700; } .alert a { font-weight:700; }
   .item { border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px; }
   .item.neg { border-color:#c62828; } .item p { margin:4px 0 8px; white-space:pre-wrap; word-break:break-word; }
@@ -253,7 +253,9 @@ async function loadHome() {
       <div class="kpi"><small>Interactions (7 j)</small><strong>${fmt(k.engagement)}</strong><br>${delta(k.engagementDelta)}</div>
       <div class="kpi"><small>Publications suivies</small><strong>${s.posts.length}</strong></div>
     </div>
-    <h2>Alertes</h2>${s.alerts.map((a) => `<div class="alert ${a.level}"><b>${esc(a.title)}</b>${esc(a.text)}${a.go ? ` <a href="${a.go}">Ouvrir</a>` : ''}</div>`).join('')}`;
+    <h2>Alertes</h2>${s.alerts.map((a) => `<div class="alert ${a.level}"><b>${esc(a.title)}</b>${esc(a.text)}${a.go ? ` <a href="${a.go}">Ouvrir</a>` : ''}</div>`).join('')}
+    <h2>Vues par jour</h2><canvas id="cv"></canvas>`;
+    spark($('cv'), s.daily);
   } catch (e) { fail(el, e); }
 }
 function spark(c, v) {
