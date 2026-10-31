@@ -32,6 +32,8 @@
   .row.ok b { color:var(--ok); } .row.warn b { color:var(--warn); } .row.bad b { color:var(--bad); } .row.info b { color:var(--dim); }
   .row.bad { border-color:var(--bad); }
   .meta { color:var(--dim); font-size:.9rem; }
+  .chk { display:flex; gap:10px; align-items:flex-start; margin:8px 0; }
+  .chk input { width:20px; height:20px; margin-top:3px; accent-color:var(--blue); flex:none; }
   .err { color:var(--bad); font-weight:700; }
   a.go { display:block; margin-top:16px; text-align:center; font-weight:800; color:var(--blue-deep); }
 </style>
@@ -39,14 +41,19 @@
 <body>
 <header><a href="/">← Site</a><h1>Analyser</h1></header>
 <main>
-  <p class="meta">Contrôle ta vidéo avant de la publier. L’analyse se fait dans ton navigateur : la vidéo n’est envoyée nulle part.</p>
+  <p class="meta">Contrôle ta vidéo ou ton image avant de la publier. L’analyse se fait dans ton navigateur : le fichier n’est envoyé nulle part.</p>
 
-  <label class="title" for="file">Vidéo</label>
-  <input id="file" type="file" accept="video/*">
+  <label class="title" for="file">Vidéo ou image</label>
+  <input id="file" type="file" accept="video/*,image/*">
   <video id="pv" controls playsinline></video>
+  <img id="pi" alt="" style="display:none;width:100%;max-height:260px;object-fit:contain;margin-top:12px;border-radius:6px;background:#000">
 
   <label class="title" for="cap">Texte de la publication (facultatif)</label>
   <textarea id="cap" placeholder="Colle ici le texte et les hashtags prévus…"></textarea>
+
+  <label class="title">À confirmer toi-même</label>
+  <label class="chk"><input id="own" type="checkbox"> C’est mon contenu, ou j’ai l’autorisation de le publier</label>
+  <label class="chk"><input id="wm" type="checkbox"> Un logo ou filigrane d’une autre appli est visible (TikTok…)</label>
 
   <button id="go">Analyser</button>
   <div id="out" role="status"></div>
@@ -59,17 +66,22 @@ const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':
 const avg = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
 
 file.addEventListener('change', () => {
-  const f = file.files[0], v = $('pv');
-  if (!f) { v.style.display = 'none'; return; }
-  v.src = URL.createObjectURL(f); v.style.display = 'block';
+  const f = file.files[0], v = $('pv'), im = $('pi');
+  v.style.display = im.style.display = 'none';
+  if (!f) return;
+  if (f.type.startsWith('image/')) { v.removeAttribute('src'); v.load(); im.src = URL.createObjectURL(f); im.style.display = 'block'; }
+  else { v.src = URL.createObjectURL(f); v.style.display = 'block'; }
 });
 
-function loadVideo(f) {
+// On analyse la vidéo de l'aperçu : un second lecteur échoue sur beaucoup de téléphones.
+function loadVideo() {
   return new Promise((res, rej) => {
-    const v = document.createElement('video');
-    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = URL.createObjectURL(f);
-    v.onloadeddata = () => res(v);
-    v.onerror = () => rej(new Error('Ton navigateur ne peut pas lire cette vidéo. Essaie un fichier MP4.'));
+    const v = $('pv');
+    v.pause();
+    if (v.readyState >= 1 && v.videoWidth) return res(v);
+    v.onloadedmetadata = () => res(v);
+    v.onerror = () => rej(new Error(`Ton navigateur ne peut pas lire cette vidéo (code ${v.error ? v.error.code : '?'}). Essaie un fichier MP4.`));
+    v.load();
   });
 }
 function seek(v, t) {
@@ -96,13 +108,15 @@ async function audioLevel(f) {
 }
 
 async function analyse(f, caption) {
-  const v = await loadVideo(f), dur = v.duration, w = v.videoWidth, h = v.videoHeight, ratio = w / h;
+  if (f.type.startsWith('image/')) return analyseImage(f, caption);
+  const v = await loadVideo(), dur = v.duration, w = v.videoWidth, h = v.videoHeight, ratio = w / h;
   const lums = [];
   for (const p of [.1, .3, .5, .7, .9]) { await seek(v, p * dur); lums.push(lum(grab(v))); }
   const hook = [];
   for (const t of [0.1, 1, 2, Math.min(3, dur - 0.1)]) { await seek(v, t); hook.push(Array.from(grab(v))); }
   const motion = avg(hook.slice(1).map((d, i) => diff(hook[i], d)));
   const firstLum = lum(hook[0]), bright = avg(lums);
+  await seek(v, 0);
   const level = await audioLevel(f);
   const noTrack = v.audioTracks && v.audioTracks.length === 0;
 
@@ -160,8 +174,64 @@ async function analyse(f, caption) {
     else add('ok', 'Hashtags corrects', `${tags} hashtag(s).`);
   }
 
-  const score = Math.max(0, 100 - c.reduce((s, x) => s + x.pen, 0));
-  return { c, score };
+  rules(c, caption);
+  return finish(c);
+}
+
+const finish = (c) => ({ c, score: Math.max(0, 100 - c.reduce((s, x) => s + x.pen, 0)) });
+
+// Risques liés aux règles de Facebook (indicatif : Meta décide seul)
+function rules(c, t) {
+  const R = (st, ti, d, pen = 0) => c.push({ st, t: ti, d, pen, g: 1 });
+  if ($('own').checked) R('ok', 'Contenu original ou autorisé', 'Tu confirmes avoir les droits sur ce contenu.');
+  else R('warn', 'Origine du contenu non confirmée', 'Facebook réduit la portée des contenus repris d’autres créateurs sans autorisation ni apport personnel, et peut les retirer. Publie le tien, ou ajoute un vrai montage ou commentaire.', 15);
+  if ($('wm').checked) R('warn', 'Filigrane d’une autre appli', 'Meta recommande moins les contenus qui portent le logo d’une autre appli. Exporte une version sans filigrane depuis l’original.', 12);
+  if (/garanti|sans risque|gains? assur|revenu passif|devenir riche|doubl\w+ (ton|votre|tes|vos)|100\s?% ?(sûr|gagnant)/i.test(t)) R('bad', 'Promesse de gains', 'Les promesses de gains « garantis » sont refusées dans les publicités et souvent limitées sur les publications. Retire-les.', 20);
+  if (/partage (si|pour)|tag(ue|uez)? \d* ?amis|like (si|pour)|commente (oui|\+|1\b)/i.test(t)) R('warn', 'Appât à engagement', 'Demander des likes, partages ou identifications en échange de quelque chose est pénalisé. Une vraie question est préférable.', 8);
+  const L = t.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  if (L.length > 20 && (L.match(/[A-ZÀ-ÖØ-Þ]/g) || []).length / L.length > 0.5) R('warn', 'Trop de majuscules', 'Un texte tout en majuscules fait « spam » et se lit mal.', 4);
+  if (/crypto|bitcoin|btc|ethereum|binance|trading|forex|bourse|invest/i.test(t)) R('info', 'Sujet crypto ou finance', 'Si tu boostes, Meta contrôle ce sujet de plus près : une info ou de l’éducation passe plus facilement que la promotion d’un service (échange, portefeuille, prêt), qui peut exiger une autorisation préalable. Évite toute promesse de rendement.');
+}
+
+async function analyseImage(f, caption) {
+  const img = new Image(); img.src = URL.createObjectURL(f);
+  try { await img.decode(); } catch { throw new Error('Impossible de lire cette image. Essaie un fichier JPG ou PNG.'); }
+  const w = img.naturalWidth, h = img.naturalHeight, ratio = w / h, c = [];
+  const add = (st, t, d, pen = 0) => c.push({ st, t, d, pen });
+  const k = 128, cvs = document.createElement('canvas'); cvs.width = cvs.height = k;
+  const x = cvs.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0, k, k);
+  const px = x.getImageData(0, 0, k, k).data, g = new Float32Array(k * k);
+  for (let i = 0; i < k * k; i++) g[i] = 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
+  const mean = avg(Array.from(g)), sd = Math.sqrt(avg(Array.from(g, (v) => (v - mean) ** 2)));
+  let lv = 0, n = 0;
+  for (let y = 1; y < k - 1; y++) for (let z = 1; z < k - 1; z++) { const i = y * k + z, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - k] - g[i + k]; lv += l * l; n++; }
+  lv /= n;
+
+  if (ratio >= 0.75 && ratio <= 1.25) add('ok', 'Format adapté au fil', `${w}×${h} : carré ou 4:5, bien affiché sur mobile.`);
+  else if (ratio >= 0.5 && ratio < 0.75) add('ok', 'Format vertical', `${w}×${h} : bien pour Stories et Reels, mais le fil peut le recadrer.`);
+  else if (ratio > 1.25 && ratio <= 2) add('ok', 'Format paysage', `${w}×${h} : correct (1,91:1 est le standard).`);
+  else add('warn', 'Format inhabituel', `${w}×${h} : l’image risque d’être recadrée.`, 6);
+
+  const big = Math.max(w, h);
+  if (big >= 1080) add('ok', 'Résolution suffisante', `${big} px sur le plus grand côté.`);
+  else if (big >= 720) add('warn', 'Résolution moyenne', `${big} px : vise 1080 px ou plus pour une image nette.`, 5);
+  else add('bad', 'Résolution trop basse', `${big} px : l’image sera floue.`, 12);
+
+  const mo = f.size / 1048576;
+  if (mo > 50) add('bad', 'Fichier trop lourd pour le site', `${mo.toFixed(1)} Mo : la limite est de 50 Mo.`, 20);
+  else add('ok', 'Poids correct', `${mo.toFixed(1)} Mo.`);
+
+  if (mean < 60) add('bad', 'Image très sombre', 'On distingue mal le sujet. Éclaircis-la.', 12);
+  else if (mean < 85) add('warn', 'Image plutôt sombre', 'Une image plus lumineuse retient mieux l’attention.', 6);
+  else if (mean > 215) add('warn', 'Image trop claire', 'Les détails risquent de disparaître.', 5);
+  else add('ok', 'Luminosité correcte', 'L’image est bien visible.');
+
+  if (sd < 25) add('warn', 'Image peu contrastée', 'Elle paraît plate. Augmente le contraste pour qu’elle ressorte dans le fil.', 5);
+  if (lv < 20) add('warn', 'Image peut-être floue', 'Peu de détails nets détectés (estimation). Vérifie la netteté.', 8);
+  else add('ok', 'Netteté correcte', 'Des contours nets sont détectés (estimation).');
+
+  rules(c, caption);
+  return finish(c);
 }
 
 // Comparaison avec les publications de la Page (via l'API du site)
@@ -182,18 +252,20 @@ async function compare() {
 
 const VERDICT = (s) => s >= 80 ? 'Prête à publier' : s >= 60 ? 'À améliorer avant de publier' : 'À revoir avant de publier';
 const ICON = { ok: '✔ OK', warn: '⚠ À améliorer', bad: '✖ Problème', info: 'ℹ Info' };
+const rows = (a) => a.map((x) => `<div class="row ${x.st}"><b>${ICON[x.st]} · ${esc(x.t)}</b>${esc(x.d)}</div>`).join('');
 
 go.addEventListener('click', async () => {
   const f = file.files[0];
-  if (!f) { out.innerHTML = '<p class="err">Choisis d’abord une vidéo.</p>'; return; }
+  if (!f) { out.innerHTML = '<p class="err">Choisis d’abord une vidéo ou une image.</p>'; return; }
   go.disabled = true; out.innerHTML = '<p class="meta">Analyse en cours…</p>';
   try {
     const { c, score } = await analyse(f, cap.value);
     let cmp = ''; try { cmp = await compare(); } catch { cmp = '<p class="meta">Comparaison indisponible.</p>'; }
     out.innerHTML = `<div class="score"><strong>${score}/100</strong><span>${VERDICT(score)}</span></div>
       <div class="meter" aria-hidden="true"><i style="width:${score}%"></i></div>
-      <p class="meta">Ce score repère les erreurs courantes. Il ne garantit pas les vues.</p>
-      <h2>Contrôles</h2>${c.map((x) => `<div class="row ${x.st}"><b>${ICON[x.st]} · ${esc(x.t)}</b>${esc(x.d)}</div>`).join('')}
+      <p class="meta">Ce score repère des erreurs et des risques courants. Facebook décide seul de l’acceptation et de la portée : rien n’est garanti.</p>
+      <h2>Contrôles techniques</h2>${rows(c.filter((x) => !x.g))}
+      <h2>Règles Facebook et publicité (indicatif)</h2>${rows(c.filter((x) => x.g))}
       <h2>Avec tes publications</h2>${cmp}
       <a class="go" href="/#publish">Publier cette vidéo →</a>`;
   } catch (e) {
