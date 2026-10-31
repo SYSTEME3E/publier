@@ -78,12 +78,14 @@
 <header><button id="burger" aria-label="Menu"><i></i><i></i><i></i></button><h1 id="ttl">Accueil</h1></header>
 <div id="veil"></div>
 <nav id="drawer"><b>Publier</b>
-  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#ads">📣 Publicité</a><a href="#history">🕘 Historique</a><a href="/analyser.html">🔎 Analyser</a>
+  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#ytstats">▶️ YouTube</a><a href="#ytcomments">💬 Comm. YouTube</a><a href="#ads">📣 Publicité</a><a href="#history">🕘 Historique</a><a href="/analyser.html">🔎 Analyser</a>
 </nav>
 <main>
 <section class="view" id="v-home"><div id="home-c">Chargement…</div></section>
 <section class="view" id="v-posts"><div id="posts-c">Chargement…</div></section>
 <section class="view" id="v-comments"><div id="comments-c">Chargement…</div></section>
+<section class="view" id="v-ytstats"><div id="ytstats-c">Chargement…</div></section>
+<section class="view" id="v-ytcomments"><div id="ytcomments-c">Chargement…</div></section>
 <section class="view" id="v-ads"><div id="ads-c">Chargement…</div></section>
 <section class="view" id="v-history"><div id="history-c">Chargement…</div></section>
 <section class="view" id="v-publish">
@@ -104,7 +106,12 @@
 
   <div class="box">
     <div class="net"><input id="fb" type="checkbox" checked> <label for="fb">Page Facebook</label></div>
-    <div class="net"><input id="yt" type="checkbox"> <label for="yt">YouTube <small>(vidéo, envoyée en privé)</small></label></div>
+    <div class="net"><input id="yt" type="checkbox"> <label for="yt">YouTube <small>(vidéo)</small></label></div>
+    <div id="ytopts" style="display:none;padding:4px 0 8px 26px">
+      <select id="ytch" style="width:100%;padding:8px;font:inherit;margin-bottom:6px"></select>
+      <select id="ytpv" style="width:100%;padding:8px;font:inherit"><option value="private">Visibilité : privée</option><option value="unlisted">Visibilité : non répertoriée</option><option value="public">Visibilité : publique</option></select>
+      <small class="meta">Tant que YouTube n’a pas validé le projet, les vidéos restent privées.</small>
+    </div>
     <div class="net"><input id="tt" type="checkbox" disabled> <label for="tt">TikTok <small>(pas encore branché)</small></label></div>
   </div>
 
@@ -192,7 +199,7 @@ go.addEventListener('click', async () => {
       bar.style.display = 'block'; bar.firstElementChild.style.width = '0';
       mediaUrl = await upload(f);
     }
-    let fbId = null, ytId = null;
+    let fbId = null, ytId = null, ytPriv = null;
     if ($('fb').checked) {
       show('Publication sur Facebook…');
       const res = await fetch('/api/publish', {
@@ -210,13 +217,15 @@ go.addEventListener('click', async () => {
       const r = await fetch('/api/youtube', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-password': pwd.value },
-        body: JSON.stringify({ mediaUrl, title: text.value, description: text.value }),
+        body: JSON.stringify({ mediaUrl, title: text.value, description: text.value, channel: Number($('ytch').value) || 1, privacy: $('ytpv').value }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((fbId ? 'Facebook : publié. ' : '') + 'YouTube : ' + (d.error || 'échec.'));
-      ytId = d.id;
+      ytId = d.id; ytPriv = d.privacy;
     }
-    show(fbId && ytId ? 'Publié sur Facebook. Vidéo envoyée sur YouTube (privée).' : ytId ? 'Vidéo envoyée sur YouTube (privée).' : 'Publié sur ta Page.', 'ok',
+    const pvTxt = { private: 'privée', unlisted: 'non répertoriée', public: 'publique' }[ytPriv] || 'privée';
+    const forced = ytId && $('ytpv').value !== 'private' && ytPriv === 'private' ? ' YouTube l’a gardée privée (projet pas encore validé).' : '';
+    show(fbId && ytId ? `Publié sur Facebook. Vidéo envoyée sur YouTube (${pvTxt}).${forced}` : ytId ? `Vidéo envoyée sur YouTube (${pvTxt}).${forced}` : 'Publié sur ta Page.', 'ok',
       fbId ? 'https://www.facebook.com/' + fbId : 'https://studio.youtube.com/video/' + ytId + '/edit');
     statsCache = null; text.value = ''; file.value = '';
     $('preview').style.display = 'none'; $('vpreview').style.display = 'none';
@@ -229,7 +238,7 @@ go.addEventListener('click', async () => {
 });
 
 // ===== Navigation =====
-const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', ads:'Publicité', history:'Historique' };
+const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', ytstats:'YouTube', ytcomments:'Commentaires YouTube', ads:'Publicité', history:'Historique' };
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 const fmt = (n) => n == null ? '–' : Number(n).toLocaleString('fr-FR');
 const ago = (d) => new Date(d).toLocaleDateString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -246,7 +255,7 @@ async function api(path, body) {
 }
 const fail = (el, e) => { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; };
 
-const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, ads: loadAds, history: loadHistory };
+const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, ytstats: loadYtStats, ytcomments: loadYtComments, ads: loadAds, history: loadHistory };
 function route() {
   const r = (location.hash || '#home').slice(1); const name = TITLES[r] ? r : 'home';
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + name));
@@ -323,6 +332,74 @@ $('comments-c').addEventListener('click', async (e) => {
   if (a === 'delete' && !confirm('Supprimer ce commentaire ?')) return;
   b.disabled = true;
   try { await api('/api/comments', { action: a, id: box.dataset.id, message: box.querySelector('input').value }); statsCache = null; loadComments(); }
+  catch (er) { alert(er.message); b.disabled = false; }
+});
+
+// ===== YouTube (plusieurs chaînes) =====
+let ytList = null, ytCur = 1;
+try { ytCur = Number(localStorage.getItem('ytc')) || 1; } catch {}
+async function getYtList() {
+  if (!ytList) ytList = (await api('/api/youtube')).channels;
+  if (!ytList.some((c) => c.n === ytCur)) ytCur = ytList[0].n;
+  return ytList;
+}
+const ytPick = (list) => list.length < 2 ? '' : `<select class="ytpick" style="width:100%;padding:10px;font:inherit;margin-bottom:12px">${list.map((c) => `<option value="${c.n}" ${c.n === ytCur ? 'selected' : ''}>${esc(c.title)}</option>`).join('')}</select>`;
+document.addEventListener('change', (e) => {
+  if (!e.target.classList.contains('ytpick')) return;
+  ytCur = Number(e.target.value); try { localStorage.setItem('ytc', ytCur); } catch {}
+  route();
+});
+// Liste des chaînes dans l'écran Publier
+$('yt').addEventListener('change', async () => {
+  $('ytopts').style.display = $('yt').checked ? 'block' : 'none';
+  if (!$('yt').checked || $('ytch').options.length) return;
+  try {
+    const l = await getYtList();
+    $('ytch').innerHTML = l.map((c) => `<option value="${c.n}" ${c.n === ytCur ? 'selected' : ''}>Chaîne : ${esc(c.title)}</option>`).join('');
+  } catch { $('ytch').innerHTML = '<option value="1">Chaîne 1</option>'; }
+});
+async function loadYtStats() {
+  const el = $('ytstats-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
+  el.textContent = 'Chargement…';
+  try {
+    const list = await getYtList(), s = await api('/api/yt-stats?c=' + ytCur), c = s.channel, k = s.kpis;
+    el.innerHTML = `${ytPick(list)}<h2>${esc(c.title)}</h2>
+    <div class="kpis">
+      <div class="kpi"><small>Abonnés</small><strong>${c.subs == null ? 'Masqué' : fmt(c.subs)}</strong></div>
+      <div class="kpi"><small>Vues totales</small><strong>${fmt(c.views)}</strong></div>
+      <div class="kpi"><small>Vidéos</small><strong>${fmt(c.videos)}</strong></div>
+      <div class="kpi"><small>Vues (15 dernières)</small><strong>${fmt(k.recentViews)}</strong></div>
+      <div class="kpi"><small>J’aime (15 dernières)</small><strong>${fmt(k.recentLikes)}</strong></div>
+      <div class="kpi"><small>Commentaires</small><strong>${fmt(k.recentComments)}</strong></div>
+    </div>
+    <h2>Alertes</h2>${s.alerts.map((a) => `<div class="alert ${a.level}"><b>${esc(a.title)}</b>${esc(a.text)}${a.go ? ` <a href="${a.go}">Ouvrir</a>` : ''}</div>`).join('')}
+    <h2>Vidéos</h2>${s.posts.map((p) => `<div class="item"><span class="meta">${ago(p.created)}</span> <span class="tag ${p.privacy === 'public' ? '' : 'r'}">${esc({ public: 'Publique', private: 'Privée', unlisted: 'Non répertoriée' }[p.privacy] || p.privacy)}</span>
+      ${p.thumb ? `<img src="${esc(p.thumb)}" alt="" loading="lazy" class="m">` : ''}
+      <p>${esc(p.title) || '<i>(sans titre)</i>'}</p>
+      <span class="tag">👁 ${fmt(p.views)}</span><span class="tag">👍 ${fmt(p.likes)}</span><span class="tag">💬 ${fmt(p.comments)}</span>
+      <a href="${esc(p.privacy === 'public' ? p.url : p.studio)}" target="_blank" rel="noopener">Voir</a></div>`).join('') || '<p>Aucune vidéo.</p>'}`;
+  } catch (e) { fail(el, e); }
+}
+async function loadYtComments() {
+  const el = $('ytcomments-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
+  el.textContent = 'Chargement…';
+  try {
+    const list = await getYtList(), { comments } = await api('/api/yt-comments?c=' + ytCur);
+    el.innerHTML = ytPick(list) + (comments.map((c) => `<div class="item ${c.negative ? 'neg' : ''}" data-id="${esc(c.id)}">
+      <b>${esc(c.from)}</b> <span class="meta">${ago(c.created)}</span>
+      ${c.mine ? '<span class="tag">Ta chaîne</span>' : ''}${c.negative ? '<span class="tag r">Négatif</span>' : ''}${c.replied ? '<span class="tag">Répondu</span>' : ''}
+      <p>${esc(c.message)}</p><p class="meta">${esc(c.postText)} · <a href="${esc(c.post)}" target="_blank" rel="noopener">Voir</a></p>
+      <div class="acts"><input type="text" placeholder="Ta réponse…"><button data-a="reply">Répondre</button>
+      <button class="sec" data-a="hide">Masquer</button><button class="dng" data-a="delete">Supprimer</button></div></div>`).join('') || '<p>Aucun commentaire récent.</p>');
+  } catch (e) { fail(el, e); }
+}
+$('ytcomments-c').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const box = b.closest('.item'), a = b.dataset.a;
+  if (a === 'delete' && !confirm('Supprimer ce commentaire ?')) return;
+  if (a === 'hide' && !confirm('Masquer ce commentaire ? Il sera mis en attente de modération dans YouTube Studio.')) return;
+  b.disabled = true;
+  try { await api('/api/yt-comments?c=' + ytCur, { action: a, id: box.dataset.id, message: box.querySelector('input').value }); loadYtComments(); }
   catch (er) { alert(er.message); b.disabled = false; }
 });
 
