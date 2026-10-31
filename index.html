@@ -110,6 +110,14 @@
     <div id="ytopts" style="display:none;padding:4px 0 8px 26px">
       <select id="ytch" style="width:100%;padding:8px;font:inherit;margin-bottom:6px"></select>
       <select id="ytpv" style="width:100%;padding:8px;font:inherit"><option value="private">Visibilité : privée</option><option value="unlisted">Visibilité : non répertoriée</option><option value="public">Visibilité : publique</option></select>
+      <input id="yttitle" type="text" maxlength="100" placeholder="Titre YouTube (100 max). Vide : 1re ligne du texte" style="width:100%;padding:10px;font:inherit;border:1px solid var(--line);border-radius:6px;margin-top:6px">
+      <textarea id="ytdesc" placeholder="Description YouTube. Vide : le texte de la publication" style="width:100%;padding:10px;font:inherit;border:1px solid var(--line);border-radius:6px;margin-top:6px;min-height:90px"></textarea>
+      <input id="yttags" type="text" placeholder="Tags séparés par des virgules (ex : binance, crypto, piratage)" style="width:100%;padding:10px;font:inherit;border:1px solid var(--line);border-radius:6px;margin-top:6px">
+      <select id="ytcat" style="width:100%;padding:10px;font:inherit;border:1px solid var(--line);border-radius:6px;margin-top:6px"><option value="22">Catégorie : Personnes et blogs</option><option value="25">Catégorie : Actualités et politique</option><option value="27">Catégorie : Éducation</option><option value="28">Catégorie : Sciences et technologies</option><option value="24">Catégorie : Divertissement</option><option value="23">Catégorie : Humour</option><option value="26">Catégorie : Conseils et style</option><option value="10">Catégorie : Musique</option><option value="20">Catégorie : Jeux vidéo</option><option value="17">Catégorie : Sports</option><option value="19">Catégorie : Voyages</option><option value="15">Catégorie : Animaux</option></select>
+      <select id="ytlang" style="width:100%;padding:10px;font:inherit;border:1px solid var(--line);border-radius:6px;margin-top:6px"><option value="fr">Langue : Français</option><option value="en">Langue : English</option><option value="es">Langue : Español</option><option value="pt">Langue : Português</option><option value="ar">Langue : العربية</option></select>
+      <div class="net"><input id="ytkids" type="checkbox"> <label for="ytkids">Vidéo destinée aux enfants</label></div>
+      <label class="meta" for="ytthumb" style="display:block;margin-top:6px">Miniature (JPG ou PNG, 2 Mo max, facultatif)</label>
+      <input id="ytthumb" type="file" accept="image/jpeg,image/png" style="width:100%">
       <small class="meta">Tant que YouTube n’a pas validé le projet, les vidéos restent privées.</small>
     </div>
     <div class="net"><input id="tt" type="checkbox" disabled> <label for="tt">TikTok <small>(pas encore branché)</small></label></div>
@@ -188,6 +196,7 @@ go.addEventListener('click', async () => {
   if (!f && !text.value.trim()) return show('Écris un texte ou ajoute un fichier.', 'err');
   if (!pwd.value) return show('Entre le mot de passe.', 'err');
   if ($('yt').checked && !(f && f.type.startsWith('video/'))) return show('YouTube demande une vidéo.', 'err');
+  if ($('yt').checked && $('ytthumb').files[0] && $('ytthumb').files[0].size > 2 * 1024 * 1024) return show('Miniature trop lourde (2 Mo maximum).', 'err');
   go.disabled = true;
   try {
     let mediaUrl = null, mediaType = 'text';
@@ -212,22 +221,32 @@ go.addEventListener('click', async () => {
       fbId = data.id;
     }
     try { localStorage.setItem('pwd', pwd.value); } catch {}
+    let ytWarn = '';
     if ($('yt').checked) {
+      let thumbUrl = null;
+      const th = $('ytthumb').files[0];
+      if (th) { show('Envoi de la miniature…'); bar.style.display = 'block'; bar.firstElementChild.style.width = '0'; thumbUrl = await upload(th); }
       show('Envoi sur YouTube…');
       const r = await fetch('/api/youtube', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-password': pwd.value },
-        body: JSON.stringify({ mediaUrl, title: text.value, description: text.value, channel: Number($('ytch').value) || 1, privacy: $('ytpv').value }),
+        body: JSON.stringify({
+          mediaUrl, thumbUrl, title: $('yttitle').value.trim() || text.value, description: $('ytdesc').value.trim() || text.value,
+          tags: $('yttags').value, category: $('ytcat').value, lang: $('ytlang').value, kids: $('ytkids').checked,
+          channel: Number($('ytch').value) || 1, privacy: $('ytpv').value,
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((fbId ? 'Facebook : publié. ' : '') + 'YouTube : ' + (d.error || 'échec.'));
       ytId = d.id; ytPriv = d.privacy;
+      if (d.thumbError) ytWarn = ' Miniature non appliquée : ' + d.thumbError;
     }
     const pvTxt = { private: 'privée', unlisted: 'non répertoriée', public: 'publique' }[ytPriv] || 'privée';
-    const forced = ytId && $('ytpv').value !== 'private' && ytPriv === 'private' ? ' YouTube l’a gardée privée (projet pas encore validé).' : '';
+    const forced = (ytId && $('ytpv').value !== 'private' && ytPriv === 'private' ? ' YouTube l’a gardée privée (projet pas encore validé).' : '') + ytWarn;
     show(fbId && ytId ? `Publié sur Facebook. Vidéo envoyée sur YouTube (${pvTxt}).${forced}` : ytId ? `Vidéo envoyée sur YouTube (${pvTxt}).${forced}` : 'Publié sur ta Page.', 'ok',
       fbId ? 'https://www.facebook.com/' + fbId : 'https://studio.youtube.com/video/' + ytId + '/edit');
     statsCache = null; text.value = ''; file.value = '';
+    $('yttitle').value = $('ytdesc').value = $('yttags').value = ''; $('ytthumb').value = ''; $('ytkids').checked = false;
     $('preview').style.display = 'none'; $('vpreview').style.display = 'none';
   } catch (e) {
     show(e.message, 'err');
