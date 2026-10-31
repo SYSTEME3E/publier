@@ -78,7 +78,7 @@
 <header><button id="burger" aria-label="Menu"><i></i><i></i><i></i></button><h1 id="ttl">Accueil</h1></header>
 <div id="veil"></div>
 <nav id="drawer"><b>Publier</b>
-  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#ytstats">▶️ YouTube</a><a href="#ytcomments">💬 Comm. YouTube</a><a href="#ads">📣 Publicité</a><a href="#history">🕘 Historique</a><a href="/analyser.html">🔎 Analyser</a>
+  <a href="#home">📊 Accueil</a><a href="#publish">✏️ Publier</a><a href="#posts">📰 Publications</a><a href="#comments">💬 Commentaires</a><a href="#ytstats">▶️ YouTube</a><a href="#ytcomments">💬 Comm. YouTube</a><a href="#live">🔴 Live</a><a href="#ads">📣 Publicité</a><a href="#history">🕘 Historique</a><a href="/analyser.html">🔎 Analyser</a>
 </nav>
 <main>
 <section class="view" id="v-home"><div id="home-c">Chargement…</div></section>
@@ -86,6 +86,7 @@
 <section class="view" id="v-comments"><div id="comments-c">Chargement…</div></section>
 <section class="view" id="v-ytstats"><div id="ytstats-c">Chargement…</div></section>
 <section class="view" id="v-ytcomments"><div id="ytcomments-c">Chargement…</div></section>
+<section class="view" id="v-live"><div id="live-c">Chargement…</div></section>
 <section class="view" id="v-ads"><div id="ads-c">Chargement…</div></section>
 <section class="view" id="v-history"><div id="history-c">Chargement…</div></section>
 <section class="view" id="v-publish">
@@ -257,7 +258,7 @@ go.addEventListener('click', async () => {
 });
 
 // ===== Navigation =====
-const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', ytstats:'YouTube', ytcomments:'Commentaires YouTube', ads:'Publicité', history:'Historique' };
+const TITLES = { home:'Accueil', publish:'Publier', posts:'Publications', comments:'Commentaires', ytstats:'YouTube', ytcomments:'Commentaires YouTube', live:'Live', ads:'Publicité', history:'Historique' };
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 const fmt = (n) => n == null ? '–' : Number(n).toLocaleString('fr-FR');
 const ago = (d) => new Date(d).toLocaleDateString('fr-FR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -274,7 +275,7 @@ async function api(path, body) {
 }
 const fail = (el, e) => { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; };
 
-const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, ytstats: loadYtStats, ytcomments: loadYtComments, ads: loadAds, history: loadHistory };
+const loaders = { home: loadHome, posts: loadPosts, comments: loadComments, ytstats: loadYtStats, ytcomments: loadYtComments, live: loadLive, ads: loadAds, history: loadHistory };
 function route() {
   const r = (location.hash || '#home').slice(1); const name = TITLES[r] ? r : 'home';
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + name));
@@ -465,6 +466,67 @@ async function loadAds() {
 $('ads-c').addEventListener('click', async (e) => {
   const b = e.target.closest('button[data-id]'); if (!b) return; b.disabled = true;
   try { await api('/api/ads', { action: 'status', id: b.dataset.id, status: b.dataset.s }); loadAds(); } catch (er) { alert(er.message); b.disabled = false; }
+});
+// ===== Live (YouTube + Facebook, diffusé avec OBS) =====
+let liveSt = null;
+const LIFE = { created: 'créé', ready: 'prêt', testing: 'en test', live: 'en direct', complete: 'terminé' };
+const STRM = { active: 'vidéo reçue', inactive: 'aucune vidéo reçue', ready: 'en attente', created: 'en attente', error: 'erreur' };
+const HLTH = { good: 'bonne', ok: 'correcte', bad: 'mauvaise', noData: 'aucune donnée' };
+const LS = 'width:100%;padding:10px;font:inherit;border:1px solid var(--line);border-radius:6px;margin-top:6px';
+async function loadLive() {
+  const el = $('live-c'); if (!pw()) { el.textContent = 'Entre d’abord le mot de passe dans Publier.'; return; }
+  if (liveSt) return liveRender();
+  let list = []; try { list = await getYtList(); } catch {}
+  el.innerHTML = `<p class="meta">Crée le direct, puis colle le serveur et la clé dans OBS.</p>
+    <input id="lv-t" type="text" maxlength="100" placeholder="Titre du direct" style="${LS}">
+    <textarea id="lv-d" placeholder="Description (facultatif)" style="${LS};min-height:80px"></textarea>
+    <div class="net"><input id="lv-yt" type="checkbox" checked> <label for="lv-yt">YouTube</label></div>
+    ${list.length > 1 ? `<select id="lv-ch" style="${LS}">${list.map((c) => `<option value="${c.n}">Chaîne : ${esc(c.title)}</option>`).join('')}</select>` : '<input id="lv-ch" type="hidden" value="1">'}
+    <select id="lv-pv" style="${LS}"><option value="public">Visibilité YouTube : publique</option><option value="unlisted">Visibilité YouTube : non répertoriée</option><option value="private">Visibilité YouTube : privée</option></select>
+    <div class="net"><input id="lv-fb" type="checkbox" checked> <label for="lv-fb">Page Facebook</label></div>
+    <button id="lv-go" style="margin-top:12px">Créer le direct</button><div id="lv-st" role="status"></div>`;
+}
+async function liveCreate() {
+  const st = $('lv-st'), y = $('lv-yt').checked, f = $('lv-fb').checked, title = $('lv-t').value.trim();
+  const bad = (m) => { st.className = 'err'; st.textContent = m; };
+  if (!title) return bad('Donne un titre.');
+  if (!y && !f) return bad('Coche au moins une plateforme.');
+  $('lv-go').disabled = true; st.className = ''; st.textContent = 'Création du direct…';
+  try {
+    liveSt = await api('/api/live', { action: 'create', title, description: $('lv-d').value, youtube: y, facebook: f, channel: Number($('lv-ch').value) || 1, privacy: $('lv-pv').value });
+    liveRender();
+  } catch (e) { bad(e.message); $('lv-go').disabled = false; }
+}
+function liveRender() {
+  const s = liveSt, S = 'flex:1 1 100%;border:1px solid var(--line);border-radius:6px;font:inherit', PV = { public: 'publique', unlisted: 'non répertoriée', private: 'privée' };
+  const box = (n, d) => `<div class="item"><b>${n}</b>${d.privacy ? ` <span class="tag">${PV[d.privacy] || esc(d.privacy)}</span>` : ''}
+    <p class="meta">Serveur</p><div class="acts"><input type="text" readonly value="${esc(d.server)}" style="${S}"><button data-copy="${esc(d.server)}">Copier</button></div>
+    <p class="meta">Clé de diffusion (ne la partage jamais)</p><div class="acts"><input type="password" readonly value="${esc(d.key)}" style="${S}"><button data-copy="${esc(d.key)}">Copier</button></div>
+    <p><a href="${esc(d.watch)}" target="_blank" rel="noopener">Voir le direct</a>${d.studio ? ` · <a href="${esc(d.studio)}" target="_blank" rel="noopener">Console YouTube</a>` : ''}</p></div>`;
+  $('live-c').innerHTML = (s.errors || []).map((e) => `<p class="err">${esc(e)}</p>`).join('') +
+    (s.youtube ? box('YouTube', s.youtube) : '') + (s.facebook ? box('Facebook', s.facebook) : '') +
+    `<p class="meta">Dans OBS : Paramètres, Diffusion, Service « Personnalisé ». Colle le serveur et la clé, puis « Démarrer la diffusion ». Pour diffuser sur les deux en même temps, utilise le plugin « Multiple RTMP outputs ». Ne recharge pas cette page avant la fin du direct.</p>
+    <div class="acts"><button id="lv-check">Vérifier l’état</button><button class="dng" id="lv-end">Terminer le direct</button><button class="sec" id="lv-new">Nouveau direct</button></div><p id="lv-state" role="status"></p>`;
+}
+$('live-c').addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.copy != null) {
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copié ✔'; setTimeout(() => { b.textContent = 'Copier'; }, 1500); } catch { alert('Copie impossible : sélectionne le texte à la main.'); }
+    return;
+  }
+  if (b.id === 'lv-go') return liveCreate();
+  if (b.id === 'lv-new') { liveSt = null; return loadLive(); }
+  if (b.id !== 'lv-check' && b.id !== 'lv-end') return;
+  const end = b.id === 'lv-end', st = $('lv-state');
+  if (end && !confirm('Terminer le direct ?')) return;
+  b.disabled = true; st.className = ''; st.textContent = '…';
+  try {
+    const d = await api('/api/live', { action: end ? 'end' : 'status', channel: liveSt.youtube?.channel || 1,
+      youtube: liveSt.youtube && { broadcastId: liveSt.youtube.broadcastId, streamId: liveSt.youtube.streamId }, facebook: liveSt.facebook && { id: liveSt.facebook.id } });
+    st.textContent = end ? 'Direct terminé.' : [d.youtube && `YouTube : ${LIFE[d.youtube.life] || d.youtube.life}, ${STRM[d.youtube.stream] || d.youtube.stream}, qualité ${HLTH[d.youtube.health] || d.youtube.health || '–'}`,
+      d.facebook && `Facebook : ${d.facebook.status}${d.facebook.views != null ? ` (${d.facebook.views} spectateurs)` : ''}`].filter(Boolean).join(' · ');
+  } catch (er) { st.className = 'err'; st.textContent = er.message; }
+  b.disabled = false;
 });
 route();
 
