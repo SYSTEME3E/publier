@@ -193,13 +193,22 @@ function rules(c, t) {
   if (/crypto|bitcoin|btc|ethereum|binance|trading|forex|bourse|invest/i.test(t)) R('info', 'Sujet crypto ou finance', 'Si tu boostes, Meta contrôle ce sujet de plus près : une info ou de l’éducation passe plus facilement que la promotion d’un service (échange, portefeuille, prêt), qui peut exiger une autorisation préalable. Évite toute promesse de rendement.');
 }
 
+// On réutilise l'image de l'aperçu, déjà chargée par le navigateur.
+function loadImage(f) {
+  return new Promise(async (res, rej) => {
+    const el = $('pi'), fail = () => rej(new Error('Impossible de lire cette image. Essaie un fichier JPG ou PNG.'));
+    if (el.complete && el.naturalWidth) return res({ src: el, w: el.naturalWidth, h: el.naturalHeight });
+    try { const b = await createImageBitmap(f); return res({ src: b, w: b.width, h: b.height }); } catch {}
+    el.onload = () => (el.naturalWidth ? res({ src: el, w: el.naturalWidth, h: el.naturalHeight }) : fail());
+    el.onerror = fail;
+  });
+}
+
 async function analyseImage(f, caption) {
-  const img = new Image(); img.src = URL.createObjectURL(f);
-  try { await img.decode(); } catch { throw new Error('Impossible de lire cette image. Essaie un fichier JPG ou PNG.'); }
-  const w = img.naturalWidth, h = img.naturalHeight, ratio = w / h, c = [];
+  const im = await loadImage(f), w = im.w, h = im.h, ratio = w / h, c = [];
   const add = (st, t, d, pen = 0) => c.push({ st, t, d, pen });
   const k = 128, cvs = document.createElement('canvas'); cvs.width = cvs.height = k;
-  const x = cvs.getContext('2d', { willReadFrequently: true }); x.drawImage(img, 0, 0, k, k);
+  const x = cvs.getContext('2d', { willReadFrequently: true }); x.drawImage(im.src, 0, 0, k, k);
   const px = x.getImageData(0, 0, k, k).data, g = new Float32Array(k * k);
   for (let i = 0; i < k * k; i++) g[i] = 0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2];
   const mean = avg(Array.from(g)), sd = Math.sqrt(avg(Array.from(g, (v) => (v - mean) ** 2)));
